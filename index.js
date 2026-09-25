@@ -10,7 +10,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Lista przechowująca aktywne boty
 let activeBots = [];
 
-// Funkcja generująca losową nazwę bota (żeby anty-cheat podejrzanie nie patrzył na ciągi typu "Bot1", "Bot2")
+// Funkcja generująca losową nazwę bota
 function generateRandomName() {
     const adjectives = ["Cool", "Fast", "Super", "Dark", "Pro", "Mega", "Epic", "Ninja"];
     const nouns = ["Player", "Gamer", "Shadow", "Ghost", "Knight", "Hunter", "Wolf", "Bot"];
@@ -20,15 +20,18 @@ function generateRandomName() {
     return `${randomAdj}${randomNoun}${randomNumber}`;
 }
 
-// Obsługa żądania ze strony www
+// Endpoint HTTP dla Render (żeby widział, że aplikacja żyje)
+app.get('/ping', (req, res) => {
+    res.status(200).send('Bot Panel is alive!');
+});
+
+// Obsługa uruchamiania botów ze strony www
 app.post('/start-bots', (req, res) => {
     let count = parseInt(req.body.botCount) || 1;
     
-    // Ograniczenie do max 8 botów zgodnie z Twoją prośbą
     if (count > 8) count = 8;
     if (count < 1) count = 1;
 
-    // Najpierw wyłączamy poprzednie boty, jeśli jakieś działały
     stopAllBots();
 
     const host = req.body.host;
@@ -36,7 +39,6 @@ app.post('/start-bots', (req, res) => {
 
     console.log(`Uruchamianie ${count} botów na serwer: ${host}:${port}`);
 
-    // Pętla tworząca określoną liczbę botów z losowym opóźnieniem (anty-cheat protection)
     for (let i = 0; i < count; i++) {
         setTimeout(() => {
             const botName = generateRandomName();
@@ -45,27 +47,22 @@ app.post('/start-bots', (req, res) => {
                 host: host,
                 port: port,
                 username: botName,
-                // Ukrywanie, że to bot (podawanie wersji, wersja protokołu itp.)
                 version: false 
             });
 
-            // Anty-cheat bypass: losowe ruchy co jakiś czas, żeby serwer nie uznał bota za AFK/program
             bot.once('spawn', () => {
                 console.log(`Bot ${botName} dołączył do gry!`);
                 
-                // Co jakiś czas wykonaj losowy ruch, aby oszukać anty-cheat
                 setInterval(() => {
                     if (!bot.entity) return;
-                    // Losowy skok lub obrót głowy
                     const actions = ['forward', 'back', 'left', 'right'];
                     const randomAction = actions[Math.floor(Math.random() * actions.length)];
                     
                     bot.setControlState(randomAction, true);
                     setTimeout(() => bot.setControlState(randomAction, false), 1000);
 
-                    // Losowy obrót głowy (zapobiega wykryciu sztywnego stania)
                     bot.look(Math.random() * Math.PI * 2, (Math.random() - 0.5) * Math.PI);
-                }, 10000); // co 10 sekund
+                }, 10000);
             });
 
             bot.on('error', (err) => {
@@ -77,7 +74,7 @@ app.post('/start-bots', (req, res) => {
             });
 
             activeBots.push(bot);
-        }, i * 1500); // 1.5 sekundy przerwy między wchodzeniem każdego bota (chroni przed anty-cheatem na spam połączeń)
+        }, i * 1500); 
     }
 
     res.send(`Uruchomiono ${count} botów! Sprawdź konsolę.`);
@@ -92,6 +89,8 @@ function stopAllBots() {
     activeBots = [];
 }
 
-app.listen(3000, () => {
-    console.log('Panel uruchomiony! Otwórz w przeglądarce: http://localhost:3000');
+// Uruchomienie serwera na porcie wskazanym przez Render lub domyślnie 3000
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Panel uruchomiony na porcie ${PORT}`);
 });
