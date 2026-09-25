@@ -7,6 +7,13 @@ app.use(express.json());
 
 let activeBots = [];
 
+// ==========================================
+// TUTAJ WPISUJESZ SWÓJ SERWER I PORT NA STAŁE
+// ==========================================
+const TARGET_HOST = "LanarchiaGG.Aternos.Me"; // Zmień na IP swojego serwera
+const TARGET_PORT = 25565;                      // Zmień na port, jeśli jest inny niż 25565
+// ==========================================
+
 // Funkcja generująca losową nazwę bota
 function generateRandomName() {
     const adjectives = ["Cool", "Fast", "Super", "Dark", "Pro", "Mega", "Epic", "Ninja"];
@@ -37,39 +44,34 @@ function getRandomChatText() {
     return messages[Math.floor(Math.random() * messages.length)];
 }
 
-// Strona główna z wbudowanym panelem HTML w jednym pliku
+// Prosta strona z jednym polem do wpisania liczby botów
 app.get('/', (req, res) => {
     res.send(`
         <!DOCTYPE html>
         <html lang="pl">
         <head>
             <meta charset="UTF-8">
-            <title>Panel Sterowania Botami Minecraft</title>
+            <title>Panel Botów Minecraft</title>
             <style>
                 body { font-family: Arial, sans-serif; background: #1e1e1e; color: #fff; text-align: center; padding-top: 50px; }
                 .box { background: #2d2d2d; padding: 20px; border-radius: 8px; display: inline-block; width: 320px; }
                 input, button { width: 90%; padding: 10px; margin: 10px 0; border-radius: 5px; border: none; }
-                input { background: #3c3c3c; color: #fff; }
-                button { background: #4CAF50; color: white; font-weight: bold; cursor: pointer; }
+                input { background: #3c3c3c; color: #fff; font-size: 16px; text-align: center; }
+                button { background: #4CAF50; color: white; font-weight: bold; cursor: pointer; font-size: 16px; }
                 button:hover { background: #45a049; }
                 .info { font-size: 12px; color: #aaa; margin-top: 5px; }
             </style>
         </head>
         <body>
             <div class="box">
-                <h2>Panel Botów (Wszystko w 1 pliku)</h2>
+                <h2>Sterowanie Botami</h2>
+                <p style="font-size: 13px; color: #ccc;">Serwer: <b>${TARGET_HOST}</b></p>
                 <form action="/start-bots" method="POST">
-                    <label>IP Serwera:</label>
-                    <input type="text" name="host" value="localhost" required>
+                    <label>Ile osób ma dołączyć?</label>
+                    <input type="number" name="botCount" min="1" value="5" required>
+                    <div class="info">Boty wejdą, zarejestrują się i zaczną symulować graczy.</div>
                     
-                    <label>Port Serwera:</label>
-                    <input type="number" name="port" value="25565" required>
-                    
-                    <label>Liczba botów:</label>
-                    <input type="number" name="botCount" min="1" value="3" required>
-                    <div class="info">Boty automatycznie się zarejestrują, zalogują i będą pisać na czacie.</div>
-                    
-                    <button type="submit">Wypuść Boty na Serwer</button>
+                    <button type="submit">Wypuść Boty</button>
                 </form>
             </div>
         </body>
@@ -77,22 +79,17 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Endpoint ping dla Renderu
 app.get('/ping', (req, res) => {
     res.status(200).send('Bot Panel is alive!');
 });
 
-// Obsługa uruchamiania botów
 app.post('/start-bots', (req, res) => {
     let count = parseInt(req.body.botCount) || 1;
     if (count < 1) count = 1;
 
     stopAllBots();
 
-    const host = req.body.host;
-    const port = parseInt(req.body.port) || 25565;
-
-    console.log(`Uruchamianie ${count} botów na serwer: ${host}:${port}`);
+    console.log(`Uruchamianie ${count} botów na serwer: ${TARGET_HOST}:${TARGET_PORT}`);
 
     for (let i = 0; i < count; i++) {
         setTimeout(() => {
@@ -100,8 +97,8 @@ app.post('/start-bots', (req, res) => {
             const botPassword = generateRandomPassword();
             
             const bot = mineflayer.createBot({
-                host: host,
-                port: port,
+                host: TARGET_HOST,
+                port: TARGET_PORT,
                 username: botName,
                 version: false 
             });
@@ -109,18 +106,18 @@ app.post('/start-bots', (req, res) => {
             bot.once('spawn', () => {
                 console.log(`Bot ${botName} dołączył do gry. Rejestracja...`);
 
-                // 1. Rejestracja
+                // Rejestracja
                 setTimeout(() => {
                     bot.chat(`/register ${botPassword} ${botPassword}`);
                 }, 1000);
 
-                // 2. Logowanie
+                // Logowanie
                 setTimeout(() => {
                     bot.chat(`/login ${botPassword}`);
                     console.log(`Bot ${botName} wysłał komendę logowania.`);
                 }, 3000);
 
-                // Anty-cheat bypass + losowy czat
+                // Ruch i czat (omijanie anty-cheatu)
                 setInterval(() => {
                     if (!bot.entity) return;
                     
@@ -145,10 +142,10 @@ app.post('/start-bots', (req, res) => {
             });
 
             activeBots.push(bot);
-        }, i * 1000); 
+        }, i * 1500); // 1.5 sekundy przerwy między wejściami kolejnych botów
     }
 
-    res.send(`<h2>Uruchomiono ${count} botów!</h2><p>Sprawdź konsolę serwera.</p><a href="/">Powrót</a>`);
+    res.send(`<h2>Uruchomiono ${count} botów!</h2><p>Sprawdź konsolę na Renderze.</p><a href="/">Powrót</a>`);
 });
 
 function stopAllBots() {
