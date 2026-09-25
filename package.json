@@ -1,0 +1,13 @@
+{
+  "name": "minecraft-bot-panel",
+  "version": "1.0.0",
+  "description": "Panel do uruchamiania botów Minecraft",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mineflayer": "^4.20.0"
+  }
+}
