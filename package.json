@@ -1,13 +1,13 @@
 {
-  "name": "minecraft-bot-panel",
+  "name": "discord-weryfikacja-bot",
   "version": "1.0.0",
-  "description": "Panel do uruchamiania botów Minecraft",
+  "description": "Bot weryfikacyjny do Discorda",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "mineflayer": "^4.20.0"
+    "discord.js": "^14.14.0",
+    "dotenv": "^16.4.5"
   }
 }
