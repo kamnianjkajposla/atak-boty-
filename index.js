@@ -1,3 +1,5 @@
+require('dotenv').config();
+const http = require('http');
 const { 
   Client, 
   GatewayIntentBits, 
@@ -7,25 +9,38 @@ const {
   ActionRowBuilder, 
   ButtonBuilder, 
   ButtonStyle, 
-  PermissionFlagsBits 
+  PermissionFlagsBits,
+  MessageFlags
 } = require('discord.js');
 
+// --- 1. PROSTY SERWER HTTP DLA RENDERA ---
+const PORT = process.env.PORT || 3000;
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Bot Discord dziala poprawnie (Web Service)!\n');
+});
+
+server.listen(PORT, () => {
+  console.log(`Serwer HTTP nasłuchuje na porcie ${PORT}`);
+});
+
+// --- 2. KLIENT DISCORDA ---
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMembers // Wymagane do wykrywania nowych członków!
+    GatewayIntentBits.GuildMembers
   ]
 });
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`Zalogowano jako ${client.user.tag}!`);
 
-  // Rejestracja komendy slash /weryfikacja
   const commands = [
     new SlashCommandBuilder()
       .setName('weryfikacja')
-      .setDescription('Tworzy panel weryfikacyjny i konfiguruje uprawnienia kanałów')
+      .setDescription('Tworzy panel weryfikacyjny i konfigurowac uprawnienia kanałów')
       .addRoleOption(option => 
         option.setName('rola')
               .setDescription('Rola nadawana po pomyślnej weryfikacji')
@@ -43,61 +58,53 @@ client.once('ready', async () => {
     );
     console.log('Komenda /weryfikacja została pomyślnie zarejestrowana!');
   } catch (error) {
-    console.error(error);
+    console.error('Błąd rejestracji komend:', error);
   }
 });
 
-// 1. AUTOMATYCZNE NADAWANIE ROLI @Niezweryfikowany PO DOŁĄCZENIU
+// Automatyczne nadawanie roli po dołączeniu
 client.on('guildMemberAdd', async (member) => {
   try {
-    // Szukamy roli @Niezweryfikowany na serwerze
     let unverifiedRole = member.guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
 
-    // Jeśli rola nie istnieje, bot sam ją stworzy
     if (!unverifiedRole) {
       unverifiedRole = await member.guild.roles.create({
         name: 'Niezweryfikowany',
-        color: '#999999',
+        colors: { primaryColor: 0x999999 },
         reason: 'Automatycznie utworzona rola do weryfikacji'
       });
     }
 
-    // Nadajemy rolę nowemu graczowi
     await member.roles.add(unverifiedRole);
     console.log(`Nadano rolę @Niezweryfikowany dla: ${member.user.tag}`);
-
   } catch (error) {
     console.error(`Błąd podczas nadawania roli nowemu graczowi ${member.user.tag}:`, error);
   }
 });
 
-// 2. OBSŁUGA INTERAKCJI (KOMENDA I PRZYCISK)
 client.on('interactionCreate', async interaction => {
   
-  // A. Konfiguracja komendą /weryfikacja
   if (interaction.isChatInputCommand() && interaction.commandName === 'weryfikacja') {
     if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.reply({ content: 'Nie masz uprawnień Administratora do tej komendy!', ephemeral: true });
+      return interaction.reply({ content: 'Nie masz uprawnień Administratora do tej komendy!', flags: MessageFlags.Ephemeral });
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const guild = interaction.guild;
     const verificationChannel = interaction.channel;
     const targetRole = interaction.options.getRole('rola');
 
     try {
-      // Znajdź lub stwórz rolę @Niezweryfikowany
       let unverifiedRole = guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
       if (!unverifiedRole) {
         unverifiedRole = await guild.roles.create({
           name: 'Niezweryfikowany',
-          color: '#999999',
+          colors: { primaryColor: 0x999999 },
           reason: 'Automatycznie utworzona rola do weryfikacji'
         });
       }
 
-      // Ukryj i zablokuj wszystkie kanały, oprócz tego wybranego
       const channels = guild.channels.cache.values();
       for (const channel of channels) {
         if (channel.id === verificationChannel.id) {
@@ -114,7 +121,6 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
-      // Wyślij wiadomość z przyciskiem do weryfikacji
       const row = new ActionRowBuilder()
         .addComponents(
           new ButtonBuilder()
@@ -129,15 +135,14 @@ client.on('interactionCreate', async interaction => {
         components: [row]
       });
 
-      await interaction.editReply({ content: `✅ Pomyślnie skonfigurowano! Utworzono rolę @Niezweryfikowany (będzie nadawana nowym graczom), zablokowano inne kanały. Rola po weryfikacji: **${targetRole.name}**.` });
+      await interaction.editReply({ content: `✅ Sukces! Skonfigurowano kanał weryfikacji. Rola docelowa: **${targetRole.name}**.` });
 
     } catch (error) {
       console.error(error);
-      await interaction.editReply({ content: 'Wystąpił błąd podczas konfiguracji uprawnień. Upewnij się, że bot ma role wyżej niż użytkownicy oraz ma uprawnienia Administratora!' });
+      await interaction.editReply({ content: 'Wystąpił błąd. Upewnij się, że bot ma uprawnienia Administratora i najwyższą rolę na liście.' });
     }
   }
 
-  // B. Kliknięcie przycisku "Zweryfikuj się"
   if (interaction.isButton() && interaction.customId.startsWith('verify_btn_')) {
     const roleId = interaction.customId.split('_')[2];
     const guild = interaction.guild;
@@ -147,22 +152,20 @@ client.on('interactionCreate', async interaction => {
     const unverifiedRole = guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
 
     if (!targetRole) {
-      return interaction.reply({ content: 'Błąd: Docelowa rola weryfikacji nie istnieje!', ephemeral: true });
+      return interaction.reply({ content: 'Błąd: Rola docelowa nie istnieje!', flags: MessageFlags.Ephemeral });
     }
 
     try {
-      // Nadaj rolę docelową (np. Zweryfikowany)
       await member.roles.add(targetRole);
 
-      // Zabierz rolę Niezweryfikowany
       if (unverifiedRole && member.roles.cache.has(unverifiedRole.id)) {
         await member.roles.remove(unverifiedRole);
       }
 
-      await interaction.reply({ content: '🎉 Pomyślnie zweryfikowano! Odblokowano dostęp do pozostałych kanałów.', ephemeral: true });
+      await interaction.reply({ content: '🎉 Pomyślnie zweryfikowano! Masz teraz dostęp do serwera.', flags: MessageFlags.Ephemeral });
     } catch (error) {
       console.error(error);
-      await interaction.reply({ content: 'Wystąpił błąd podczas nadawania roli. Sprawdź uprawnienia bota.', ephemeral: true });
+      await interaction.reply({ content: 'Wystąpił błąd podczas nadawania roli. Sprawdź pozycję roli bota.', flags: MessageFlags.Ephemeral });
     }
   }
 });
