@@ -1,165 +1,170 @@
-const express = require('express');
-const mineflayer = require('mineflayer');
+const { 
+  Client, 
+  GatewayIntentBits, 
+  REST, 
+  Routes, 
+  SlashCommandBuilder, 
+  ActionRowBuilder, 
+  ButtonBuilder, 
+  ButtonStyle, 
+  PermissionFlagsBits 
+} = require('discord.js');
 
-const app = express();
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-
-let activeBots = [];
-
-// ==========================================
-// TUTAJ WPISUJESZ TYLKO ADRES IP SWOJEGO SERWERA
-// Port i wersja zostaną wykryte automatycznie!
-// ==========================================
-const TARGET_HOST = "LanarchiaGG.Aternos.Me"; 
-// ==========================================
-
-// Funkcja generująca losową nazwę bota
-function generateRandomName() {
-    const adjectives = ["Cool", "Fast", "Super", "Dark", "Pro", "Mega", "Epic", "Ninja", "Fast", "Alex"];
-    const nouns = ["Player", "Gamer", "Shadow", "Ghost", "Knight", "Hunter", "Wolf", "Bot", "Steve", "Noob"];
-    const randomAdj = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const randomNoun = nouns[Math.floor(Math.random() * nouns.length)];
-    const randomNumber = Math.floor(Math.random() * 9000) + 1000;
-    return `${randomAdj}${randomNoun}${randomNumber}`;
-}
-
-// Funkcja generująca losowe hasło dla bota
-function generateRandomPassword() {
-    return "Pass" + Math.floor(Math.random() * 900000 + 100000) + "!";
-}
-
-// Losowe wiadomości na czacie
-function getRandomChatText() {
-    const messages = [
-        "siema wszystkim!",
-        "fajny serwer",
-        "gdzie jest admin?",
-        "nudzę się",
-        "kto gra w przetrwanie?",
-        "ale tu ładnie",
-        "cześć",
-        "idę kopać diamenty",
-        "ale lagi",
-        "kto pomogę zbudować dom?"
-    ];
-    return messages[Math.floor(Math.random() * messages.length)];
-}
-
-// Strona główna z domyślną wartością 100 botów
-app.get('/', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html lang="pl">
-        <head>
-            <meta charset="UTF-8">
-            <title>Panel 100 Botów Minecraft</title>
-            <style>
-                body { font-family: Arial, sans-serif; background: #1e1e1e; color: #fff; text-align: center; padding-top: 50px; }
-                .box { background: #2d2d2d; padding: 25px; border-radius: 8px; display: inline-block; width: 340px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-                input, button { width: 90%; padding: 12px; margin: 10px 0; border-radius: 5px; border: none; }
-                input { background: #3c3c3c; color: #fff; font-size: 18px; text-align: center; font-weight: bold; }
-                button { background: #E53935; color: white; font-weight: bold; cursor: pointer; font-size: 16px; }
-                button:hover { background: #C62828; }
-                .info { font-size: 12px; color: #aaa; margin-top: 8px; line-height: 1.4; }
-            </style>
-        </head>
-        <body>
-            <div class="box">
-                <h2>Masowe Wprowadzanie Botów</h2>
-                <p style="font-size: 13px; color: #4CAF50;">Serwer: <b>${TARGET_HOST}</b></p>
-                <form action="/start-bots" method="POST">
-                    <label>Liczba botów do wysłania:</label>
-                    <input type="number" name="botCount" min="1" value="100" required>
-                    <div class="info">Port i wersja serwera wykryją się same. Boty wejdą, zarejestrują się i zaczną symulować graczy.</div>
-                    
-                    <button type="submit">Wypuść 100 Botów!</button>
-                </form>
-            </div>
-        </body>
-        </html>
-    `);
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMembers // Wymagane do wykrywania nowych członków!
+  ]
 });
 
-app.get('/ping', (req, res) => {
-    res.status(200).send('Bot Panel is alive!');
+client.once('ready', async () => {
+  console.log(`Zalogowano jako ${client.user.tag}!`);
+
+  // Rejestracja komendy slash /weryfikacja
+  const commands = [
+    new SlashCommandBuilder()
+      .setName('weryfikacja')
+      .setDescription('Tworzy panel weryfikacyjny i konfiguruje uprawnienia kanałów')
+      .addRoleOption(option => 
+        option.setName('rola')
+              .setDescription('Rola nadawana po pomyślnej weryfikacji')
+              .setRequired(true)
+      )
+  ];
+
+  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);
+
+  try {
+    console.log('Rejestrowanie komendy /weryfikacja...');
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      { body: commands },
+    );
+    console.log('Komenda /weryfikacja została pomyślnie zarejestrowana!');
+  } catch (error) {
+    console.error(error);
+  }
 });
 
-app.post('/start-bots', (req, res) => {
-    let count = parseInt(req.body.botCount) || 100;
-    if (count < 1) count = 1;
+// 1. AUTOMATYCZNE NADAWANIE ROLI @Niezweryfikowany PO DOŁĄCZENIU
+client.on('guildMemberAdd', async (member) => {
+  try {
+    // Szukamy roli @Niezweryfikowany na serwerze
+    let unverifiedRole = member.guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
 
-    stopAllBots();
-
-    console.log(`Rozpoczynam wysyłanie ${count} botów na serwer: ${TARGET_HOST} (port i wersja wykrywane automatycznie)`);
-
-    for (let i = 0; i < count; i++) {
-        setTimeout(() => {
-            const botName = generateRandomName();
-            const botPassword = generateRandomPassword();
-            
-            // Brak jawnego portu i wersji - Mineflayer sam je wykryje i zgadnie!
-            const bot = mineflayer.createBot({
-                host: TARGET_HOST,
-                username: botName,
-                version: false 
-            });
-
-            bot.once('spawn', () => {
-                console.log(`Bot ${botName} dołączył do gry. Rejestracja...`);
-
-                // Automatyczna rejestracja
-                setTimeout(() => {
-                    bot.chat(`/register ${botPassword} ${botPassword}`);
-                }, 1500);
-
-                // Automatyczne logowanie
-                setTimeout(() => {
-                    bot.chat(`/login ${botPassword}`);
-                }, 3500);
-
-                // Ruch i czat (omijanie anty-cheatu i kicków za AFK)
-                setInterval(() => {
-                    if (!bot.entity) return;
-                    
-                    const actions = ['forward', 'back', 'left', 'right'];
-                    const randomAction = actions[Math.floor(Math.random() * actions.length)];
-                    bot.setControlState(randomAction, true);
-                    setTimeout(() => bot.setControlState(randomAction, false), 1000);
-                    bot.look(Math.random() * Math.PI * 2, (Math.random() - 0.5) * Math.PI);
-
-                    if (Math.random() < 0.25) {
-                        bot.chat(getRandomChatText());
-                    }
-                }, 15000);
-            });
-
-            bot.on('error', (err) => {
-                // Ukrywamy pomniejsze błędy połączeń, żeby nie zasmiecać konsoli przy 100 botach
-                console.log(`Błąd bota ${botName}:`, err.message);
-            });
-
-            bot.on('end', () => {
-                // Bot rozłączony
-            });
-
-            activeBots.push(bot);
-        }, i * 800); // Odstęp 0.8 sekundy między botami, żeby nie przyciąć serwera natychmiastowym spamem
+    // Jeśli rola nie istnieje, bot sam ją stworzy
+    if (!unverifiedRole) {
+      unverifiedRole = await member.guild.roles.create({
+        name: 'Niezweryfikowany',
+        color: '#999999',
+        reason: 'Automatycznie utworzona rola do weryfikacji'
+      });
     }
 
-    res.send(`<h2>Wysłano ${count} botów!</h2><p>Sprawdź konsolę na Renderze oraz serwer Minecraft.</p><a href="/">Powrót do panelu</a>`);
+    // Nadajemy rolę nowemu graczowi
+    await member.roles.add(unverifiedRole);
+    console.log(`Nadano rolę @Niezweryfikowany dla: ${member.user.tag}`);
+
+  } catch (error) {
+    console.error(`Błąd podczas nadawania roli nowemu graczowi ${member.user.tag}:`, error);
+  }
 });
 
-function stopAllBots() {
-    activeBots.forEach(bot => {
-        try {
-            bot.quit();
-        } catch (e) {}
-    });
-    activeBots = [];
-}
+// 2. OBSŁUGA INTERAKCJI (KOMENDA I PRZYCISK)
+client.on('interactionCreate', async interaction => {
+  
+  // A. Konfiguracja komendą /weryfikacja
+  if (interaction.isChatInputCommand() && interaction.commandName === 'weryfikacja') {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({ content: 'Nie masz uprawnień Administratora do tej komendy!', ephemeral: true });
+    }
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Panel uruchomiony na porcie ${PORT}`);
+    await interaction.deferReply({ ephemeral: true });
+
+    const guild = interaction.guild;
+    const verificationChannel = interaction.channel;
+    const targetRole = interaction.options.getRole('rola');
+
+    try {
+      // Znajdź lub stwórz rolę @Niezweryfikowany
+      let unverifiedRole = guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
+      if (!unverifiedRole) {
+        unverifiedRole = await guild.roles.create({
+          name: 'Niezweryfikowany',
+          color: '#999999',
+          reason: 'Automatycznie utworzona rola do weryfikacji'
+        });
+      }
+
+      // Ukryj i zablokuj wszystkie kanały, oprócz tego wybranego
+      const channels = guild.channels.cache.values();
+      for (const channel of channels) {
+        if (channel.id === verificationChannel.id) {
+          await channel.permissionOverwrites.create(unverifiedRole, {
+            ViewChannel: true,
+            SendMessages: true,
+            ReadMessageHistory: true
+          });
+        } else {
+          await channel.permissionOverwrites.create(unverifiedRole, {
+            ViewChannel: false,
+            SendMessages: false
+          });
+        }
+      }
+
+      // Wyślij wiadomość z przyciskiem do weryfikacji
+      const row = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId(`verify_btn_${targetRole.id}`)
+            .setLabel('Zweryfikuj się')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('✅')
+        );
+
+      await verificationChannel.send({
+        content: '**System Weryfikacji**\nAby uzyskać dostęp do całego serwera, kliknij przycisk poniżej!',
+        components: [row]
+      });
+
+      await interaction.editReply({ content: `✅ Pomyślnie skonfigurowano! Utworzono rolę @Niezweryfikowany (będzie nadawana nowym graczom), zablokowano inne kanały. Rola po weryfikacji: **${targetRole.name}**.` });
+
+    } catch (error) {
+      console.error(error);
+      await interaction.editReply({ content: 'Wystąpił błąd podczas konfiguracji uprawnień. Upewnij się, że bot ma role wyżej niż użytkownicy oraz ma uprawnienia Administratora!' });
+    }
+  }
+
+  // B. Kliknięcie przycisku "Zweryfikuj się"
+  if (interaction.isButton() && interaction.customId.startsWith('verify_btn_')) {
+    const roleId = interaction.customId.split('_')[2];
+    const guild = interaction.guild;
+    const member = interaction.member;
+
+    const targetRole = guild.roles.cache.get(roleId);
+    const unverifiedRole = guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
+
+    if (!targetRole) {
+      return interaction.reply({ content: 'Błąd: Docelowa rola weryfikacji nie istnieje!', ephemeral: true });
+    }
+
+    try {
+      // Nadaj rolę docelową (np. Zweryfikowany)
+      await member.roles.add(targetRole);
+
+      // Zabierz rolę Niezweryfikowany
+      if (unverifiedRole && member.roles.cache.has(unverifiedRole.id)) {
+        await member.roles.remove(unverifiedRole);
+      }
+
+      await interaction.reply({ content: '🎉 Pomyślnie zweryfikowano! Odblokowano dostęp do pozostałych kanałów.', ephemeral: true });
+    } catch (error) {
+      console.error(error);
+      await interaction.reply({ content: 'Wystąpił błąd podczas nadawania roli. Sprawdź uprawnienia bota.', ephemeral: true });
+    }
+  }
 });
+
+client.login(process.env.DISCORD_BOT_TOKEN);
