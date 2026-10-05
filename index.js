@@ -1,6 +1,8 @@
+```js
 const mineflayer = require("mineflayer");
 const net = require("net");
 const http = require("http");
+const fs = require("fs");
 
 // ==================================================
 // USTAWIENIA
@@ -8,8 +10,42 @@ const http = require("http");
 
 const MC_HOST = "FAIRYMC.aternos.me";
 const MC_VERSION = "1.21.5";
-const BOT_COUNT = 20;
 
+const BOT_COUNT = 25;
+
+// Jedno hasło dla botów
+const PASSWORD = "FairyBot123";
+
+// Nazwy botów
+const BOT_NAMES = [
+    "AdamKowalski",
+    "PiotrNowak",
+    "TomekWrona",
+    "KubaLis",
+    "MarekZielinski",
+    "JanKaczmarek",
+    "PawelMazur",
+    "MichalWojcik",
+    "BartekKrawczyk",
+    "DanielSikora",
+    "MateuszKrol",
+    "FilipWieczorek",
+    "KamilPawlak",
+    "MarcinDuda",
+    "RobertWilk",
+    "SzymonJablonski",
+    "MaciejKubiak",
+    "LukaszAdamczyk",
+    "DamianWalczak",
+    "PatrykStasiak",
+    "KarolSobczak",
+    "OskarPietrzak",
+    "WojciechUrban",
+    "IgorRutkowski",
+    "HubertMichalski"
+];
+
+// Porty sprawdzane automatycznie
 const PORTS = [
     25565,
     25566,
@@ -23,19 +59,62 @@ let minecraftPort = null;
 const bots = [];
 
 // ==================================================
+// ZAPIS REJESTRACJI
+// ==================================================
+
+const REGISTER_FILE = "./registered.json";
+
+let registered = {};
+
+function loadRegistered() {
+    try {
+        if (fs.existsSync(REGISTER_FILE)) {
+            registered = JSON.parse(
+                fs.readFileSync(
+                    REGISTER_FILE,
+                    "utf8"
+                )
+            );
+        }
+    } catch (error) {
+        console.log(
+            "Nie można odczytać registered.json."
+        );
+
+        registered = {};
+    }
+}
+
+function saveRegistered() {
+    fs.writeFileSync(
+        REGISTER_FILE,
+        JSON.stringify(
+            registered,
+            null,
+            2
+        )
+    );
+}
+
+loadRegistered();
+
+// ==================================================
 // HTTP DLA RENDER
 // ==================================================
 
 const WEB_PORT = process.env.PORT || 3000;
 
 const httpServer = http.createServer((req, res) => {
+
     const online = bots.filter(
         bot => bot && bot.entity
     ).length;
 
     if (req.url === "/status") {
+
         res.writeHead(200, {
-            "Content-Type": "application/json; charset=utf-8"
+            "Content-Type":
+                "application/json; charset=utf-8"
         });
 
         res.end(JSON.stringify({
@@ -50,36 +129,56 @@ const httpServer = http.createServer((req, res) => {
     }
 
     res.writeHead(200, {
-        "Content-Type": "text/plain; charset=utf-8"
+        "Content-Type":
+            "text/plain; charset=utf-8"
     });
 
     res.end(
         "FAIRYMC Bot System\n" +
         "HTTP: ONLINE\n" +
         "Serwer: " + MC_HOST + "\n" +
-        "Port: " + (minecraftPort || "szukanie...") + "\n" +
-        "Boty: " + online + "/" + BOT_COUNT + "\n"
+        "Port: " +
+        (minecraftPort || "szukanie...") +
+        "\n" +
+        "Boty: " +
+        online +
+        "/" +
+        BOT_COUNT +
+        "\n"
     );
 });
 
-httpServer.listen(WEB_PORT, "0.0.0.0", () => {
-    console.log("HTTP działa na porcie " + WEB_PORT);
-});
+httpServer.listen(
+    WEB_PORT,
+    "0.0.0.0",
+    () => {
+        console.log(
+            "HTTP działa na porcie " +
+            WEB_PORT
+        );
+    }
+);
 
 // ==================================================
 // SPRAWDZANIE PORTU
 // ==================================================
 
 function checkPort(host, port) {
+
     return new Promise(resolve => {
+
         const socket = new net.Socket();
+
         let finished = false;
 
         function finish(result) {
+
             if (finished) return;
 
             finished = true;
+
             socket.destroy();
+
             resolve(result);
         }
 
@@ -97,27 +196,41 @@ function checkPort(host, port) {
             finish(false);
         });
 
-        socket.connect(port, host);
+        socket.connect(
+            port,
+            host
+        );
     });
 }
 
 // ==================================================
-// SZUKANIE PORTU
+// ZNAJDOWANIE PORTU
 // ==================================================
 
 async function findPort() {
-    console.log("=================================");
-    console.log("SZUKANIE PORTU MINECRAFT");
-    console.log("=================================");
-    console.log("Serwer: " + MC_HOST);
+
+    console.log(
+        "Szukam portu Minecraft..."
+    );
 
     for (const port of PORTS) {
-        console.log("Sprawdzam port " + port + "...");
 
-        const open = await checkPort(MC_HOST, port);
+        console.log(
+            "Sprawdzam " + port + "..."
+        );
+
+        const open = await checkPort(
+            MC_HOST,
+            port
+        );
 
         if (open) {
-            console.log("Znaleziono otwarty port: " + port);
+
+            console.log(
+                "Znaleziono port: " +
+                port
+            );
+
             return port;
         }
     }
@@ -126,85 +239,269 @@ async function findPort() {
 }
 
 // ==================================================
+// OPÓŹNIENIE
+// ==================================================
+
+function sleep(ms) {
+    return new Promise(
+        resolve => setTimeout(
+            resolve,
+            ms
+        )
+    );
+}
+
+// ==================================================
+// WYSŁANIE KOMENDY
+// ==================================================
+
+async function sendCommand(
+    bot,
+    command
+) {
+
+    try {
+
+        bot.chat(command);
+
+        console.log(
+            "[" +
+            bot.username +
+            "] >> " +
+            command
+        );
+
+    } catch (error) {
+
+        console.log(
+            "[" +
+            bot.username +
+            "] Nie można wysłać komendy."
+        );
+    }
+}
+
+// ==================================================
 // TWORZENIE BOTA
 // ==================================================
 
 function createBot(number) {
-    const username = "FairyBot_" + number;
 
-    console.log("[" + username + "] Łączenie...");
+    const username =
+        BOT_NAMES[number - 1];
+
+    if (!username) {
+        console.log(
+            "Brak nazwy dla bota " +
+            number
+        );
+
+        return;
+    }
+
+    console.log(
+        "[" +
+        username +
+        "] Łączenie..."
+    );
 
     const bot = mineflayer.createBot({
+
         host: MC_HOST,
+
         port: minecraftPort,
+
         username: username,
+
         version: MC_VERSION
     });
 
     bots[number - 1] = bot;
 
-    bot.once("spawn", () => {
-        console.log("[" + username + "] POŁĄCZONY!");
+    // ==================================================
+    // SPAWN
+    // ==================================================
 
-        setTimeout(() => {
-            try {
-                bot.chat("FairyBot " + number + " online!");
-            } catch (error) {
-                // Bot mógł zostać już rozłączony
+    bot.once("spawn", async () => {
+
+        console.log(
+            "[" +
+            username +
+            "] POŁĄCZONY!"
+        );
+
+        await sleep(2000);
+
+        // ----------------------------------------------
+        // PIERWSZA REJESTRACJA
+        // ----------------------------------------------
+
+        if (!registered[username]) {
+
+            console.log(
+                "[" +
+                username +
+                "] Pierwsze logowanie."
+            );
+
+            await sendCommand(
+                bot,
+                "/register " +
+                PASSWORD +
+                " " +
+                PASSWORD
+            );
+
+            await sleep(3000);
+
+            registered[username] = true;
+
+            saveRegistered();
+
+            console.log(
+                "[" +
+                username +
+                "] Zapisano rejestrację."
+            );
+
+        } else {
+
+            // ------------------------------------------
+            // KOLEJNE LOGOWANIE
+            // ------------------------------------------
+
+            console.log(
+                "[" +
+                username +
+                "] Logowanie..."
+            );
+
+            await sendCommand(
+                bot,
+                "/login " +
+                PASSWORD
+            );
+
+            await sleep(3000);
+        }
+
+        // ==================================================
+        // WIADOMOŚĆ NA CZACIE
+        // ==================================================
+
+        await sleep(1000);
+
+        try {
+
+            bot.chat(
+                "Cześć! Jestem " +
+                username
+            );
+
+        } catch {}
+    });
+
+    // ==================================================
+    // CZAT
+    // ==================================================
+
+    bot.on(
+        "chat",
+        (player, message) => {
+
+            if (
+                player ===
+                bot.username
+            ) {
+                return;
             }
-        }, 1000);
-    });
 
-    bot.on("chat", (player, message) => {
-        if (player === bot.username) return;
+            console.log(
+                "[" +
+                username +
+                "] " +
+                player +
+                ": " +
+                message
+            );
 
-        console.log(
-            "[" + username + "] " +
-            player + ": " +
-            message
-        );
+            // Przykładowe komendy
 
-        if (message === "!ping") {
-            bot.chat("Pong!");
+            if (message === "!ping") {
+
+                bot.chat("Pong!");
+            }
+
+            if (message === "!hej") {
+
+                bot.chat(
+                    "Hej " +
+                    player +
+                    "!"
+                );
+            }
         }
+    );
 
-        if (message === "!hej") {
-            bot.chat("Hej " + player + "!");
+    // ==================================================
+    // BŁĄD
+    // ==================================================
+
+    bot.on(
+        "error",
+        error => {
+
+            console.log(
+                "[" +
+                username +
+                "] BŁĄD: " +
+                error.message
+            );
         }
-    });
+    );
 
-    bot.on("error", error => {
-        console.log(
-            "[" + username + "] BŁĄD: " +
-            error.message
-        );
-    });
+    // ==================================================
+    // KICK
+    // ==================================================
 
-    bot.on("kicked", reason => {
-        console.log(
-            "[" + username + "] KICK:"
-        );
+    bot.on(
+        "kicked",
+        reason => {
 
-        console.log(reason);
-    });
+            console.log(
+                "[" +
+                username +
+                "] KICK:"
+            );
 
-    bot.on("end", () => {
-        console.log(
-            "[" + username + "] Rozłączony."
-        );
+            console.log(reason);
+        }
+    );
 
-        bots[number - 1] = null;
+    // ==================================================
+    // ROZŁĄCZENIE
+    // ==================================================
 
-        console.log(
-            "[" + username + "] Reconnect za 10 sekund..."
-        );
+    bot.on(
+        "end",
+        () => {
 
-        setTimeout(() => {
-            createBot(number);
-        }, 10000);
-    });
+            console.log(
+                "[" +
+                username +
+                "] Rozłączony."
+            );
 
-    return bot;
+            bots[number - 1] = null;
+
+            setTimeout(
+                () => {
+                    createBot(number);
+                },
+                10000
+            );
+        }
+    );
 }
 
 // ==================================================
@@ -212,54 +509,81 @@ function createBot(number) {
 // ==================================================
 
 async function start() {
-    console.log("");
-    console.log("=================================");
-    console.log("FAIRYMC BOT SYSTEM");
-    console.log("=================================");
-    console.log("Host: " + MC_HOST);
-    console.log("Wersja: " + MC_VERSION);
-    console.log("Liczba botów: " + BOT_COUNT);
-    console.log("=================================");
 
-    minecraftPort = await findPort();
+    console.log(
+        "================================="
+    );
+
+    console.log(
+        " FAIRYMC BOT SYSTEM"
+    );
+
+    console.log(
+        "================================="
+    );
+
+    console.log(
+        "Host: " + MC_HOST
+    );
+
+    console.log(
+        "Wersja: " + MC_VERSION
+    );
+
+    console.log(
+        "Boty: " + BOT_COUNT
+    );
+
+    console.log(
+        "================================="
+    );
+
+    minecraftPort =
+        await findPort();
 
     if (!minecraftPort) {
-        console.log("");
-        console.log("Nie znaleziono otwartego portu.");
-        console.log("Czy serwer Aternos jest uruchomiony?");
-        console.log("Ponawiam za 15 sekund...");
 
-        setTimeout(start, 15000);
+        console.log(
+            "Nie znaleziono portu."
+        );
+
+        console.log(
+            "Ponawiam za 15 sekund..."
+        );
+
+        setTimeout(
+            start,
+            15000
+        );
+
         return;
     }
 
-    console.log("");
     console.log(
-        "Minecraft: " +
-        MC_HOST +
-        ":" +
+        "Port Minecraft: " +
         minecraftPort
     );
 
     console.log(
-        "Uruchamiam " +
-        BOT_COUNT +
-        " botów..."
+        "Uruchamiam boty..."
     );
 
-    for (let i = 1; i <= BOT_COUNT; i++) {
+    for (
+        let i = 1;
+        i <= BOT_COUNT;
+        i++
+    ) {
+
         createBot(i);
 
-        await new Promise(resolve => {
-            setTimeout(resolve, 1000);
-        });
+        // Odstęp między botami
+        await sleep(1500);
     }
 
-    console.log("");
-    console.log("=================================");
-    console.log("WSZYSTKIE BOTY URUCHOMIONE");
-    console.log("=================================");
+    console.log(
+        "Wszystkie boty zostały uruchomione."
+    );
 }
 
 start();
-
+```
