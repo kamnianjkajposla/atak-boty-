@@ -1,173 +1,346 @@
-require('dotenv').config();
-const http = require('http');
-const { 
-  Client, 
-  GatewayIntentBits, 
-  REST, 
-  Routes, 
-  SlashCommandBuilder, 
-  ActionRowBuilder, 
-  ButtonBuilder, 
-  ButtonStyle, 
-  PermissionFlagsBits,
-  MessageFlags
-} = require('discord.js');
+```js
+const mineflayer = require("mineflayer");
+const net = require("net");
+const http = require("http");
 
-// --- 1. PROSTY SERWER HTTP DLA RENDERA ---
-const PORT = process.env.PORT || 3000;
+// ==================================================
+// USTAWIENIA MINECRAFT
+// ==================================================
 
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('Bot Discord dziala poprawnie (Web Service)!\n');
-});
+const MC_HOST = "FAIRYMC.aternos.me";
+const MC_VERSION = "1.21.5";
 
-server.listen(PORT, () => {
-  console.log(`Serwer HTTP nasłuchuje na porcie ${PORT}`);
-});
+const BOT_COUNT = 20;
 
-// --- 2. KLIENT DISCORDA ---
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMembers
-  ]
-});
+// Porty do sprawdzenia
+const PORTS = [
+    25565,
+    25566,
+    25567,
+    25568,
+    25569,
+    25570
+];
 
-client.once('clientReady', async () => {
-  console.log(`Zalogowano jako ${client.user.tag}!`);
+// ==================================================
+// HTTP DLA RENDER
+// ==================================================
 
-  const commands = [
-    new SlashCommandBuilder()
-      .setName('weryfikacja')
-      .setDescription('Tworzy panel weryfikacyjny i konfigurowac uprawnienia kanałów')
-      .addRoleOption(option => 
-        option.setName('rola')
-              .setDescription('Rola nadawana po pomyślnej weryfikacji')
-              .setRequired(true)
-      )
-  ];
+const WEB_PORT = process.env.PORT || 3000;
 
-  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN);
+let minecraftPort = null;
+let bots = [];
 
-  try {
-    console.log('Rejestrowanie komendy /weryfikacja...');
-    await rest.put(
-      Routes.applicationCommands(client.user.id),
-      { body: commands },
-    );
-    console.log('Komenda /weryfikacja została pomyślnie zarejestrowana!');
-  } catch (error) {
-    console.error('Błąd rejestracji komend:', error);
-  }
-});
+const httpServer = http.createServer((req, res) => {
 
-// Automatyczne nadawanie roli po dołączeniu
-client.on('guildMemberAdd', async (member) => {
-  try {
-    let unverifiedRole = member.guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
+    if (req.url === "/status") {
 
-    if (!unverifiedRole) {
-      unverifiedRole = await member.guild.roles.create({
-        name: 'Niezweryfikowany',
-        colors: { primaryColor: 0x999999 },
-        reason: 'Automatycznie utworzona rola do weryfikacji'
-      });
-    }
+        const online = bots.filter(
+            bot => bot && bot.entity
+        ).length;
 
-    await member.roles.add(unverifiedRole);
-    console.log(`Nadano rolę @Niezweryfikowany dla: ${member.user.tag}`);
-  } catch (error) {
-    console.error(`Błąd podczas nadawania roli nowemu graczowi ${member.user.tag}:`, error);
-  }
-});
-
-client.on('interactionCreate', async interaction => {
-  
-  if (interaction.isChatInputCommand() && interaction.commandName === 'weryfikacja') {
-    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.reply({ content: 'Nie masz uprawnień Administratora do tej komendy!', flags: MessageFlags.Ephemeral });
-    }
-
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    const guild = interaction.guild;
-    const verificationChannel = interaction.channel;
-    const targetRole = interaction.options.getRole('rola');
-
-    try {
-      let unverifiedRole = guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
-      if (!unverifiedRole) {
-        unverifiedRole = await guild.roles.create({
-          name: 'Niezweryfikowany',
-          colors: { primaryColor: 0x999999 },
-          reason: 'Automatycznie utworzona rola do weryfikacji'
+        res.writeHead(200, {
+            "Content-Type": "application/json; charset=utf-8"
         });
-      }
 
-      const channels = guild.channels.cache.values();
-      for (const channel of channels) {
-        if (channel.id === verificationChannel.id) {
-          await channel.permissionOverwrites.create(unverifiedRole, {
-            ViewChannel: true,
-            SendMessages: true,
-            ReadMessageHistory: true
-          });
-        } else {
-          await channel.permissionOverwrites.create(unverifiedRole, {
-            ViewChannel: false,
-            SendMessages: false
-          });
+        res.end(JSON.stringify({
+            status: "online",
+            server: MC_HOST,
+            port: minecraftPort,
+            botsOnline: online,
+            botsTotal: BOT_COUNT
+        }, null, 2));
+
+        return;
+    }
+
+    res.writeHead(200, {
+        "Content-Type": "text/plain; charset=utf-8"
+    });
+
+    res.end(
+        "FAIRYMC Minecraft Bot System\n" +
+        "HTTP: ONLINE\n" +
+        `Serwer: ${MC_HOST}\n` +
+        `Port: ${minecraftPort || "szukanie..."}\n` +
+        `Boty: ${bots.filter(b => b && b.entity).length}/${BOT_COUNT}\n`
+    );
+});
+
+httpServer.listen(
+    WEB_PORT,
+    "0.0.0.0",
+    () => {
+        console.log(
+            `HTTP działa na porcie ${WEB_PORT}`
+        );
+    }
+);
+
+// ==================================================
+// SPRAWDZANIE PORTU
+// ==================================================
+
+function checkPort(host, port) {
+
+    return new Promise(resolve => {
+
+        const socket = new net.Socket();
+
+        let finished = false;
+
+        function finish(result) {
+
+            if (finished) return;
+
+            finished = true;
+
+            socket.destroy();
+
+            resolve(result);
         }
-      }
 
-      const row = new ActionRowBuilder()
-        .addComponents(
-          new ButtonBuilder()
-            .setCustomId(`verify_btn_${targetRole.id}`)
-            .setLabel('Zweryfikuj się')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('✅')
+        socket.setTimeout(2000);
+
+        socket.once("connect", () => {
+            finish(true);
+        });
+
+        socket.once("timeout", () => {
+            finish(false);
+        });
+
+        socket.once("error", () => {
+            finish(false);
+        });
+
+        socket.connect(port, host);
+    });
+}
+
+// ==================================================
+// SZUKANIE PORTU
+// ==================================================
+
+async function findPort() {
+
+    console.log("");
+    console.log("=================================");
+    console.log(" SZUKANIE PORTU MINECRAFT");
+    console.log("=================================");
+    console.log(`Serwer: ${MC_HOST}`);
+
+    for (const port of PORTS) {
+
+        console.log(
+            `Sprawdzam port ${port}...`
         );
 
-      await verificationChannel.send({
-        content: '**System Weryfikacji**\nAby uzyskać dostęp do całego serwera, kliknij przycisk poniżej!',
-        components: [row]
-      });
+        const result = await checkPort(
+            MC_HOST,
+            port
+        );
 
-      await interaction.editReply({ content: `✅ Sukces! Skonfigurowano kanał weryfikacji. Rola docelowa: **${targetRole.name}**.` });
+        if (result) {
 
-    } catch (error) {
-      console.error(error);
-      await interaction.editReply({ content: 'Wystąpił błąd. Upewnij się, że bot ma uprawnienia Administratora i najwyższą rolę na liście.' });
-    }
-  }
+            console.log(
+                `Znaleziono otwarty port: ${port}`
+            );
 
-  if (interaction.isButton() && interaction.customId.startsWith('verify_btn_')) {
-    const roleId = interaction.customId.split('_')[2];
-    const guild = interaction.guild;
-    const member = interaction.member;
-
-    const targetRole = guild.roles.cache.get(roleId);
-    const unverifiedRole = guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
-
-    if (!targetRole) {
-      return interaction.reply({ content: 'Błąd: Rola docelowa nie istnieje!', flags: MessageFlags.Ephemeral });
+            return port;
+        }
     }
 
-    try {
-      await member.roles.add(targetRole);
+    return null;
+}
 
-      if (unverifiedRole && member.roles.cache.has(unverifiedRole.id)) {
-        await member.roles.remove(unverifiedRole);
-      }
+// ==================================================
+// TWORZENIE BOTA
+// ==================================================
 
-      await interaction.reply({ content: '🎉 Pomyślnie zweryfikowano! Masz teraz dostęp do serwera.', flags: MessageFlags.Ephemeral });
-    } catch (error) {
-      console.error(error);
-      await interaction.reply({ content: 'Wystąpił błąd podczas nadawania roli. Sprawdź pozycję roli bota.', flags: MessageFlags.Ephemeral });
+function createBot(number) {
+
+    const username = `FairyBot_${number}`;
+
+    console.log(
+        `[${username}] Łączenie...`
+    );
+
+    const bot = mineflayer.createBot({
+        host: MC_HOST,
+        port: minecraftPort,
+        username: username,
+        version: MC_VERSION
+    });
+
+    bots[number - 1] = bot;
+
+    // ==============================================
+    // POŁĄCZENIE
+    // ==============================================
+
+    bot.once("spawn", () => {
+
+        console.log(
+            `[${username}] POŁĄCZONY!`
+        );
+
+        setTimeout(() => {
+
+            try {
+                bot.chat(
+                    `FairyBot ${number} online!`
+                );
+            } catch {}
+            
+        }, 1000);
+    });
+
+    // ==============================================
+    // CHAT
+    // ==============================================
+
+    bot.on("chat", (player, message) => {
+
+        if (player === bot.username) {
+            return;
+        }
+
+        console.log(
+            `[${username}] ${player}: ${message}`
+        );
+
+        if (message === "!ping") {
+
+            bot.chat("Pong!");
+        }
+
+        if (message === "!hej") {
+
+            bot.chat(
+                `Hej ${player}!`
+            );
+        }
+    });
+
+    // ==============================================
+    // BŁĄD
+    // ==============================================
+
+    bot.on("error", error => {
+
+        console.log(
+            `[${username}] BŁĄD: ${error.message}`
+        );
+    });
+
+    // ==============================================
+    // KICK
+    // ==============================================
+
+    bot.on("kicked", reason => {
+
+        console.log(
+            `[${username}] KICK:`
+        );
+
+        console.log(reason);
+    });
+
+    // ==============================================
+    // ROZŁĄCZENIE
+    // ==============================================
+
+    bot.on("end", () => {
+
+        console.log(
+            `[${username}] Rozłączony.`
+        );
+
+        bots[number - 1] = null;
+
+        console.log(
+            `[${username}] Reconnect za 10 sekund...`
+        );
+
+        setTimeout(() => {
+
+            createBot(number);
+
+        }, 10000);
+    });
+
+    return bot;
+}
+
+// ==================================================
+// START
+// ==================================================
+
+async function start() {
+
+    console.log("");
+    console.log("=================================");
+    console.log(" FAIRYMC BOT SYSTEM");
+    console.log("=================================");
+    console.log(`Host: ${MC_HOST}`);
+    console.log(`Wersja: ${MC_VERSION}`);
+    console.log(`Liczba botów: ${BOT_COUNT}`);
+    console.log("=================================");
+
+    minecraftPort = await findPort();
+
+    if (!minecraftPort) {
+
+        console.log("");
+        console.log(
+            "Nie znaleziono otwartego portu."
+        );
+
+        console.log(
+            "Czy serwer Aternos jest uruchomiony?"
+        );
+
+        console.log(
+            "Ponawiam za 15 sekund..."
+        );
+
+        setTimeout(start, 15000);
+
+        return;
     }
-  }
-});
 
-client.login(process.env.DISCORD_BOT_TOKEN);
+    console.log("");
+    console.log(
+        `Minecraft: ${MC_HOST}:${minecraftPort}`
+    );
+
+    console.log(
+        `Uruchamiam ${BOT_COUNT} botów...`
+    );
+
+    console.log("");
+
+    // ==============================================
+    // URUCHAMIANIE 20 BOTÓW
+    // ==============================================
+
+    for (let i = 1; i <= BOT_COUNT; i++) {
+
+        createBot(i);
+
+        // 1 sekunda odstępu
+        await new Promise(resolve => {
+            setTimeout(resolve, 1000);
+        });
+    }
+
+    console.log("");
+    console.log("=================================");
+    console.log(" WSZYSTKIE BOTY URUCHOMIONE");
+    console.log("=================================");
+}
+
+start();
+```
+
