@@ -1,4 +1,3 @@
-```js
 const mineflayer = require("mineflayer");
 const net = require("net");
 const http = require("http");
@@ -586,4 +585,4 @@ async function start() {
 }
 
 start();
-```
+
